@@ -32,6 +32,14 @@ public class GridCreator {
         this.maxGridSize = maxGridSize;
     }
 
+    void SetMaxGridSize(double size) {
+        this.maxGridSize = size;
+    }
+
+    void SetMinGridSize(double size) {
+        this.minGridSize = size;
+    }
+
     void SetClip(boolean clip) {
         this.clip = clip;
     }
@@ -78,7 +86,7 @@ public class GridCreator {
             if (polygon.Intersects(boundary)) {
                 if ((rectSize/2) >= minGridSize) {
                     List<Rectangle> subdivided = currentRect.subdivide();
-                    subdivided.forEach((rect) -> queue.add(rect));
+                    queue.addAll(subdivided);
                 }
                 else {
                     outList.add(Pair.of(true, polygon));
