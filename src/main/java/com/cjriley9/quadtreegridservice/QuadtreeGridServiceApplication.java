@@ -12,8 +12,6 @@ import org.gdal.ogr.Geometry;
 import org.gdal.ogr.ogrConstants;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.Optional;
-
 @SpringBootApplication
 @RestController
 public class QuadtreeGridServiceApplication {
@@ -30,17 +28,22 @@ public class QuadtreeGridServiceApplication {
                         @RequestParam(defaultValue = "0.25") double minGridSize,
                         @RequestBody String inFeatures) {
 
+        // make sure max size is larger than min size before starting to process the geometry
+        if (maxGridSize <= minGridSize) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "maxGridSize must be larger than minGridsize");
+        }
+
         Geometry inGeom = Geometry.CreateFromJson(inFeatures);
 
         if (inGeom == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unable to parse input GeoJSON");
         }
 
-        // try to make it valid before throwing an invalid error in the next step
+        // try to make it valid before proceeding
         inGeom.MakeValid();
 
-        // return error on invalid or empty geometry
-        if (!inGeom.IsValid() || inGeom.IsEmpty()) {
+        // return error on empty geometry
+        if (inGeom.IsEmpty()) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "Invalid or empty geometry"
             );
@@ -58,20 +61,29 @@ public class QuadtreeGridServiceApplication {
                         HttpStatus.BAD_REQUEST, "Invalid geometry type, must be Polygon or Multipolygon"
                 );
         }
-        GridCreator creator = new GridCreator(inGeom);
 
-        // make sure max size is larger than min size
-        if (maxGridSize <= minGridSize) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "maxGridSize must be larger than minGridsize");
+        GridCreator creator;
+        try {
+            creator = new GridCreator(inGeom);
+        } catch (InvalidRectangleException e) {
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Error creating bounding box from input geometry: " + e.getMessage());
         }
 
         // process parameters
         creator.setMaxGridSize(maxGridSize);
         creator.setMinGridSize(minGridSize);
         creator.setClip(clip);
-
-        Geometry outGeom = creator.Process();
-        return outGeom.ExportToJson();
+        try {
+            Geometry outGeom = creator.Process();
+            return outGeom.ExportToJson();
+        } catch (GridCreatorException e) {
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Error while processing input geometry"
+            );
+        }
     }
 
 }
