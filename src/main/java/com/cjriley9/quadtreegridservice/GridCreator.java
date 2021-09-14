@@ -2,50 +2,55 @@ package com.cjriley9.quadtreegridservice;
 
 import org.gdal.ogr.Geometry;
 
-import java.util.*;
+import java.util.List;
+import java.util.Queue;
+import java.util.ArrayList;
+import java.util.ArrayDeque;
 
 import org.apache.commons.lang3.tuple.Pair;
 import org.gdal.ogr.ogrConstants;
 
 public class GridCreator {
+    private final Geometry inGeom;
+    private final Rectangle bbox;
+
     private double minGridSize = .25;
     private double maxGridSize =   5;
-    private final Geometry inGeom;
     private boolean clip = true;
-    private final Rectangle bbox;
 
     GridCreator(Geometry inGeom) {
         this.inGeom = inGeom;
-        this.bbox = Rectangle.FromGeometry(inGeom);
+        this.bbox = Rectangle.fromGeometry(inGeom);
     }
 
     GridCreator(Geometry inGeom, double minGridSize) {
         this.inGeom = inGeom;
-        this.bbox = Rectangle.FromGeometry(inGeom);
+        this.bbox = Rectangle.fromGeometry(inGeom);
         this.minGridSize = minGridSize;
     }
 
     GridCreator(Geometry inGeom, double minGridSize, double maxGridSize) {
         this.inGeom = inGeom;
-        this.bbox = Rectangle.FromGeometry(inGeom);
+        this.bbox = Rectangle.fromGeometry(inGeom);
         this.minGridSize = minGridSize;
         this.maxGridSize = maxGridSize;
     }
 
-    void SetMaxGridSize(double size) {
+    void setMaxGridSize(double size) {
         this.maxGridSize = size;
     }
 
-    void SetMinGridSize(double size) {
+    void setMinGridSize(double size) {
         this.minGridSize = size;
     }
 
-    void SetClip(boolean clip) {
+    void setClip(boolean clip) {
         this.clip = clip;
     }
 
     /**
-     * Fills a new queue with a set of cells of maxGridSize that cover the input AOI
+     * Fills a new queue with a set of cells of maxGridSize that cover the input geometry
+     * @return a queue of rectangles that covers the input geometry, to be used in further processing
      */
     Queue<Rectangle> prepQueue() {
         Queue<Rectangle> queue = new ArrayDeque<>();
@@ -54,12 +59,13 @@ public class GridCreator {
         int xSize = (int)((bbox.xMax - bbox.xMin)/maxGridSize) + 1;
         int ySize = (int)((bbox.yMax - bbox.yMin)/maxGridSize) + 1;
 
-        // used to center the new cells over the aoi
+        // center the new cells over the aoi
         double xRemainder = (bbox.xMax - bbox.xMin) % maxGridSize;
         double yRemainder = (bbox.yMax - bbox.yMin) % maxGridSize;
         double xBasis = bbox.xMin - (xRemainder / 2);
         double yBasis = bbox.yMin - (yRemainder / 2);
 
+        // loop through and create starting grid
         for (int i = 0; i <= xSize; i++) {
             for (int j = 0; j <= ySize; j++) {
                 double newXMin = xBasis + (i * maxGridSize);
@@ -75,7 +81,16 @@ public class GridCreator {
         return queue;
     }
 
+    /**
+     * Processes a queue of cells, subdividing if a cell intersects the input geometry and if subdividing the cell
+     * wouldn't result in cells smaller than the minimum allowed size.
+     * @param queue a queue that contains rectangles to be subdivided
+     * @return a list of paired boolean and geometry values. The boolean is used to indicate whether the cell
+     *          intersects the input geometry boundary. This allows us to more easily decide when to clip cells in the
+     *          next step.
+     */
     List<Pair<Boolean, Geometry>> processQueue(Queue<Rectangle> queue) {
+        // use pairs to indicate whether or not a cell intersects the boundary, to help us know when to clip it later
         List<Pair<Boolean, Geometry>> outList = new ArrayList<>();
         Geometry boundary = inGeom.Boundary();
 
@@ -84,6 +99,7 @@ public class GridCreator {
             double rectSize = currentRect.xMax - currentRect.xMin;
             Geometry polygon = currentRect.asGeometry();
             if (polygon.Intersects(boundary)) {
+                // make sure that a subdivision won't result in cells that are less than minGridsize
                 if ((rectSize/2) >= minGridSize) {
                     List<Rectangle> subdivided = currentRect.subdivide();
                     queue.addAll(subdivided);
@@ -92,42 +108,42 @@ public class GridCreator {
                     outList.add(Pair.of(true, polygon));
                 }
             }
+            // check if it is within the input geometry
             else if (polygon.Intersects(inGeom)) {
                 outList.add(Pair.of(false, polygon));
             }
         }
-//        while (!queue.isEmpty()) {
-//            Rectangle currentRect = queue.remove();
-//            outList.add(Pair.of(false, currentRect.asGeometry()));
-//        }
         return outList;
 
 
     }
 
+    /**
+     * Returns an output geometry created from subdividing the input according to the provided parameters
+     * @return a multipolygon geometry containing the result of the subdivision process over the input geometry
+     */
     Geometry Process() {
         Queue<Rectangle> queue = prepQueue();
         Geometry outGeometry = new Geometry(ogrConstants.wkbMultiPolygon);
-        System.out.println(outGeometry.GetGeometryType());
         List<Pair<Boolean, Geometry>> cellList = processQueue(queue);
         for (Pair<Boolean, Geometry> cell : cellList) {
             Geometry outCellGeom;
+            // clip the cell to the original geometry
             if (clip && cell.getLeft()) {
-//                System.out.println("Getting intersection");
                 outCellGeom = cell.getValue().Intersection(inGeom);
-//                System.out.println(outCellGeom.GetGeometryType());
             }
             else {
-//                System.out.println("No intersection");
                 outCellGeom = cell.getValue();
-//                System.out.println(test.GetGeometryType());
-//                System.out.println(test.GetGeometryName());
             }
             switch (outCellGeom.GetGeometryType()) {
                 case ogrConstants.wkbMultiPolygon: {
                     int geomCount = outCellGeom.GetGeometryCount();
                     for (int i = 0; i < geomCount; i++) {
                         Geometry subGeom = outCellGeom.GetGeometryRef(i);
+                        /*
+                        these should always be polygons, but ogr can be weird
+                        so it's worth checking and ignoring other geometry types
+                         */
                         if (subGeom.GetGeometryType() == ogrConstants.wkbPolygon) {
                             outGeometry.AddGeometry(subGeom);
                         }
@@ -137,11 +153,15 @@ public class GridCreator {
                 case ogrConstants.wkbPolygon:
                     outGeometry.AddGeometry(outCellGeom);
                     break;
+                /*
+                This should be unreachable but on more complex inputs
+                there is a possibility of lines or points making it in
+                which would need to be ignored
+                 */
                 default:
                     break;
             }
         }
-        System.out.println(outGeometry.GetGeometryCount());
         return outGeometry;
     }
 }

@@ -17,10 +17,16 @@ public class Rectangle {
         if (llCorner.length != 2 || urCorner.length != 2) {
             throw new InvalidRectangleException("The lower left corner and upper right corner must each be defined by an array of 2 coordinates");
         }
+        if (llCorner[0] >= urCorner[0] || llCorner[1] >= urCorner[1]) {
+            throw new InvalidRectangleException("lower left x and y values must be less than their corresponding upper right values");
+        }
         this.xMin = llCorner[0];
         this.yMin = urCorner[1];
         this.xMax = urCorner[0];
         this.yMax = urCorner[1];
+        if (llCorner[0] >= urCorner[0] || llCorner[1] >= urCorner[1]) {
+            throw new InvalidRectangleException("lower left x and y values must be less than their corresponding upper right values");
+        }
     }
 
     Rectangle(double[] coords) {
@@ -30,38 +36,30 @@ public class Rectangle {
         this.yMax = coords[3];
     }
 
-    static Rectangle FromGeometry(Geometry geom) {
+    static Rectangle fromGeometry(Geometry geom) {
         double[] bboxArr = new double[4];
         geom.GetEnvelope(bboxArr);
-        System.out.println("Input array: " +Arrays.toString(bboxArr));
-
         return new Rectangle(bboxArr);
     }
 
     Geometry asGeometry() {
-        Geometry lineString = new Geometry(ogrConstants.wkbLinearRing);
-//        System.out.println("Linestring Type: " + lineString.GetGeometryType());
-//        System.out.println("xMax: " + xMax + " yMax: " + yMax);
+        Geometry ring = new Geometry(ogrConstants.wkbLinearRing);
 
         // lower right
-        lineString.AddPoint_2D(xMax, yMin);
+        ring.AddPoint_2D(xMax, yMin);
         // upper right
-        lineString.AddPoint_2D(xMax, yMax);
+        ring.AddPoint_2D(xMax, yMax);
         // upper left
-        lineString.AddPoint_2D(xMin, yMax);
+        ring.AddPoint_2D(xMin, yMax);
         // lower left
-        lineString.AddPoint_2D(xMin, yMin);
-//        System.out.println("Linestring Type: " + lineString.GetGeometryType());
+        ring.AddPoint_2D(xMin, yMin);
+
         // adds the first point to the end to close the ring
-//        System.out.println("Ring Type: " + ring.GetGeometryType());
-        lineString.CloseRings();
+        ring.CloseRings();
 
         Geometry outGeometry = new Geometry(ogrConstants.wkbPolygon);
 
-//        System.out.println("From asGeometry before adding ring: " + outGeometry.GetGeometryType());
-        outGeometry.AddGeometry(lineString);
-//        System.out.println("From asGeometry: " + outGeometry.GetGeometryType());
-
+        outGeometry.AddGeometry(ring);
         return outGeometry;
     }
 
