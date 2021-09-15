@@ -28,4 +28,5 @@ difficult to set up, and GDAL is a port of JTS anyway.
 <li>The exception handling for the REST controller could probably be moved to another class
 <li>An easy next step would be to allow this to receive and respond with KML geometry as well
 <li>This can take a while for more complex inputs, so some way to deal with that would be needed in a production environment
+<li>Functional and unit tests, especially around error handling
 </ul>
